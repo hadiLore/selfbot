@@ -68,6 +68,14 @@ from ..storage.warn_store import (
     get_warn_settings,
     update_warn_settings,
 )
+from ..storage.activity_store import (
+    increment_messages,
+    increment_warnings,
+    increment_deleted,
+    increment_joined,
+    increment_left,
+    get_summary,
+)
 from ..storage.stats_store import record_error as _record_error
 from ..utils import pat
 
@@ -915,3 +923,61 @@ async def warn_cmd_handler(event):
         return
 
     await event.edit(f"دستور نامعتبر. برای راهنما: `{PREFIX}اخطار`")
+
+
+# ------------------------------------------------------------ گزارش روزانه فعالیت گروه ---
+@client.on(events.NewMessage(outgoing=True, pattern=pat(["گزارش", "report"])))
+async def report_cmd_handler(event):
+    if not event.is_group:
+        return await event.edit("این دستور فقط توی گروه‌ها کار می‌کنه")
+
+    raw = (event.pattern_match.group(1) or "").strip()
+    sub = raw.lower() if raw else ""
+    chat_id = event.chat_id
+
+    if sub in ("امروز", "today"):
+        summary = await get_summary(chat_id, days=1)
+        days = 1
+        label = "امروز"
+    elif sub in ("هفته", "week"):
+        summary = await get_summary(chat_id, days=7)
+        days = 7
+        label = "۷ روز اخیر"
+    elif sub.isdigit():
+        days = int(sub)
+        if days < 1:
+            return await event.edit("تعداد روز باید حداقل ۱ باشد.")
+        if days > 30:
+            return await event.edit("حداکثر ۳۰ روز قابل گزارش است.")
+        summary = await get_summary(chat_id, days=days)
+        label = f"{days} روز اخیر"
+    else:
+        # نمایش راهنما
+        summary = await get_summary(chat_id, days=1)
+        return await event.edit(
+            f"📊 **گزارش فعالیت گروه**\n\n"
+            f"برای دریافت گزارش، از زیردستورهای زیر استفاده کن:\n"
+            f"`{PREFIX}گزارش امروز` — گزارش امروز\n"
+            f"`{PREFIX}گزارش هفته` — گزارش ۷ روز اخیر\n"
+            f"`{PREFIX}گزارش <تعداد روز>` — گزارش تعداد روز دلخواه (حداکثر ۳۰)\n\n"
+            f"**آمار امروز:**\n"
+            f"• پیام‌ها: {summary['total_messages']}\n"
+            f"• هشدارها: {summary['total_warnings']}\n"
+            f"• پیام‌های حذف‌شده: {summary['total_deleted']}\n"
+            f"• اعضای جدید: {summary['total_joined']}\n"
+            f"• اعضای خارج‌شده: {summary['total_left']}"
+        )
+
+    # نمایش گزارش
+    lines = [
+        f"📊 **گزارش فعالیت گروه** ({label})",
+        "",
+        f"📨 پیام‌های ارسال‌شده: **{summary['total_messages']}**",
+        f"⚠️ هشدارها: **{summary['total_warnings']}**",
+        f"🗑 پیام‌های حذف‌شده: **{summary['total_deleted']}**",
+        f"➕ اعضای جدید: **{summary['total_joined']}**",
+        f"➖ اعضای خارج‌شده: **{summary['total_left']}**",
+        "",
+        f"📆 تعداد روزهای گزارش‌شده: {summary['days']}"
+    ]
+    await event.edit("\n".join(lines))
